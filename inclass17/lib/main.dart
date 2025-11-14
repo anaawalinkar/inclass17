@@ -1,122 +1,440 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'firebase_options.dart';
 
-void main() {
-  runApp(const MyApp());
+// Background message handler (must be top-level function)
+Future<void> _messageHandler(RemoteMessage message) async {
+  print('background message ${message.notification?.body}');
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  FirebaseMessaging.onBackgroundMessage(_messageHandler);
+  runApp(const MessagingTutorial());
+}
 
-  // This widget is the root of your application.
+class MessagingTutorial extends StatelessWidget {
+  const MessagingTutorial({Key? key}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      debugShowCheckedModeBanner: false,
+      title: 'Firebase Messaging',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(title: 'Firebase Messaging'),
     );
   }
 }
 
+// Notification type configuration
+class NotificationConfig {
+  final Color backgroundColor;
+  final Color textColor;
+  final IconData icon;
+  final String label;
+
+  NotificationConfig({
+    required this.backgroundColor,
+    required this.textColor,
+    required this.icon,
+    required this.label,
+  });
+}
+
+class NotificationTypeHandler {
+  static NotificationConfig getConfig(String? type, String? category) {
+    // Handle different notification types
+    switch (type?.toLowerCase()) {
+      case 'important':
+        return NotificationConfig(
+          backgroundColor: Colors.red.shade50,
+          textColor: Colors.red.shade900,
+          icon: Icons.warning,
+          label: 'Important',
+        );
+      case 'wisdom':
+        return NotificationConfig(
+          backgroundColor: Colors.purple.shade50,
+          textColor: Colors.purple.shade900,
+          icon: Icons.lightbulb,
+          label: 'Wisdom',
+        );
+      case 'motivational':
+      case 'inspiration':
+        return NotificationConfig(
+          backgroundColor: Colors.blue.shade50,
+          textColor: Colors.blue.shade900,
+          icon: Icons.emoji_events, // Trophy icon
+          label: 'Motivational',
+        );
+      case 'regular':
+      default:
+        return NotificationConfig(
+          backgroundColor: Colors.grey.shade100,
+          textColor: Colors.grey.shade900,
+          icon: Icons.message,
+          label: 'Regular',
+        );
+    }
+  }
+}
+
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  const MyHomePage({Key? key, this.title}) : super(key: key);
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  final String? title;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  _MyHomePageState createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+  late FirebaseMessaging messaging;
+  String? notificationText;
+  String? fcmToken;
+  List<Map<String, String>> notificationHistory = [];
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  @override
+  void initState() {
+    super.initState();
+    messaging = FirebaseMessaging.instance;
+    
+    // Request notification permissions
+    messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    messaging.subscribeToTopic("messaging");
+    
+    // Get and display FCM token
+    messaging.getToken().then((value) {
+      print('FCM Token: $value');
+      setState(() {
+        fcmToken = value;
+      });
+    });
+
+    // Handle foreground messages
+    FirebaseMessaging.onMessage.listen((RemoteMessage event) {
+      print("message received");
+      print(event.notification?.body);
+      print(event.data.values);
+      
+      // Extract notification type and category from data
+      String? notificationType = event.data['type'];
+      String? category = event.data['category'];
+      
+      // Get configuration based on type
+      NotificationConfig config = NotificationTypeHandler.getConfig(
+        notificationType,
+        category,
+      );
+
+      // Add to history
+      setState(() {
+        notificationHistory.insert(0, {
+          'title': event.notification?.title ?? 'Notification',
+          'body': event.notification?.body ?? '',
+          'type': notificationType ?? 'regular',
+          'category': category ?? '',
+        });
+      });
+
+      // Show custom dialog based on notification type
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            backgroundColor: config.backgroundColor,
+            title: Row(
+              children: [
+                Icon(
+                  config.icon,
+                  color: config.textColor,
+                  size: 28,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    event.notification?.title ?? 'Notification',
+                    style: TextStyle(
+                      color: config.textColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  event.notification?.body ?? '',
+                  style: TextStyle(
+                    color: config.textColor,
+                    fontSize: 16,
+                  ),
+                ),
+                if (category != null && category.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: config.textColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Category: $category',
+                      style: TextStyle(
+                        color: config.textColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                child: Text(
+                  "Ok",
+                  style: TextStyle(color: config.textColor),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          );
+        },
+      );
+    });
+
+    // Handle notification when app is opened from terminated state
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      print('Message clicked!');
+      print(message.notification?.body);
+      
+      // Extract notification type and category
+      String? notificationType = message.data['type'];
+      String? category = message.data['category'];
+      
+      NotificationConfig config = NotificationTypeHandler.getConfig(
+        notificationType,
+        category,
+      );
+
+      // Show dialog when app is opened from notification
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            backgroundColor: config.backgroundColor,
+            title: Row(
+              children: [
+                Icon(
+                  config.icon,
+                  color: config.textColor,
+                  size: 28,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    message.notification?.title ?? 'Notification',
+                    style: TextStyle(
+                      color: config.textColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              message.notification?.body ?? '',
+              style: TextStyle(
+                color: config.textColor,
+                fontSize: 16,
+              ),
+            ),
+            actions: [
+              TextButton(
+                child: Text(
+                  "Ok",
+                  style: TextStyle(color: config.textColor),
+                ),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          );
+        },
+      );
+    });
+
+    // Check if app was opened from a notification (when app was terminated)
+    messaging.getInitialMessage().then((RemoteMessage? message) {
+      if (message != null) {
+        print('App opened from notification: ${message.notification?.body}');
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: Text(widget.title!),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // FCM Token Section
+            Card(
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'FCM Token',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      fcmToken ?? 'Loading token...',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Copy this token and use it in Firebase Console to send test notifications',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
+            const SizedBox(height: 16),
+            
+            // Notification History Section
+            const Text(
+              'Notification History',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            
+            if (notificationHistory.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Center(
+                    child: Text(
+                      'No notifications received yet.\nSend a test notification from Firebase Console.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                ),
+              )
+            else
+              ...notificationHistory.map((notification) {
+                NotificationConfig config = NotificationTypeHandler.getConfig(
+                  notification['type'],
+                  notification['category'],
+                );
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  color: config.backgroundColor,
+                  child: ListTile(
+                    leading: Icon(
+                      config.icon,
+                      color: config.textColor,
+                    ),
+                    title: Text(
+                      notification['title'] ?? '',
+                      style: TextStyle(
+                        color: config.textColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text(
+                          notification['body'] ?? '',
+                          style: TextStyle(
+                            color: config.textColor,
+                          ),
+                        ),
+                        if (notification['category'] != null &&
+                            notification['category']!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: config.textColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              notification['category']!,
+                              style: TextStyle(
+                                color: config.textColor,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }

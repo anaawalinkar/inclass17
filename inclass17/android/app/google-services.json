@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "756550881278",
+    "project_id": "inclass17-messaging",
+    "storage_bucket": "inclass17-messaging.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:756550881278:android:7125a6221e8e52e4287aaf",
+        "android_client_info": {
+          "package_name": "com.example.inclass17"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDpbGv5qofqmgQbCpXO9YOlB6x4wJ8QAOc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
